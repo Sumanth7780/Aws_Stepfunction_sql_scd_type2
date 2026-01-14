@@ -54,155 +54,160 @@
 ---
 ---
 
-### 2) Advanced SQL Transformations + Governance as Code (Day 12–13)
-- Built modular SQL transformations using:
-  - CTEs for readability + reuse
-  - staging → fact/dim layers
-  - reusable validation queries
-- Implemented SQL “unit tests”:
-  - row count expectations
-  - not-null checks
-  - referential integrity checks against master/zone dimensions
-- Added governance metadata in SQL headers:
-  - author, owner, purpose, dependencies, quality expectations
-- Prepared SQL for scheduled execution in Glue/Athena/Redshift context.
-
-**Outcome:** SQL logic is version-controlled, testable, and auditable.
 
 ---
 
-### 3) Slowly Changing Dimensions (SCD Type 2) + Master Data Versioning (Day 14–15)
-- Implemented SCD Type 2 patterns for dimensions (example: taxi zones / vendors):
-  - surrogate key
-  - `effective_from`, `effective_to`
+## Advanced SQL Transformations + Governance as Code (Day 12–13)
+
+### What Was Implemented
+
+- Built **modular SQL transformations** using:
+  - Common Table Expressions (CTEs) for readability and reuse
+  - Clear separation of layers: staging → dimension
+- Implemented **SQL-based data quality checks**:
+  - Not-null validations
+  - Business key uniqueness
+  - Referential integrity against master zone dimension
+- Added **governance metadata in SQL headers**:
+  - Author
+  - Owner
+  - Purpose
+  - Dependencies
+  - Quality expectations
+- Designed SQL scripts to be **scheduler-ready** for Glue execution
+
+### Outcome
+
+SQL logic is:
+- Version-controlled
+- Testable
+- Auditable
+- Production-ready
+
+---
+
+## Slowly Changing Dimensions (SCD Type 2) + Master Data Versioning (Day 14–15)
+
+### What Was Implemented
+
+- Designed and implemented **SCD Type 2 dimension** for taxi zones:
+  - Surrogate key
+  - `effective_from` / `effective_to`
   - `is_current`
-  - audit columns (`created_at`, `updated_at`, `approved_by`, `change_reason`)
-- Wrote point-in-time queries for compliance:
-  - “as-of” joins between fact trips and dimension version that was valid at trip time.
-- Designed rollback strategy leveraging Delta history / versioned records.
+  - `version_number`
+- Used **hash-based change detection** to identify attribute changes
+- Implemented **audit logging** for:
+  - Insert
+  - Expire
+  - No-change events
+- Enabled **point-in-time queries** for historical accuracy
+- Defined rollback capability using versioned records
 
-**Outcome:** Historical truth is preserved for reporting, auditing, and dispute resolution.
+### Outcome
+
+Historical truth is preserved for:
+- Analytics
+- Auditing
+- Compliance
+- Dispute resolution
+   - ![SQL Headers](./pics/day12_sql_headers.png)
+---
+
+## Dataset Mapping to SQL Logic
+
+### TLC Fields Used
+
+From Yellow Taxi schema:
+- `tpep_pickup_datetime`
+- `tpep_dropoff_datetime`
+- `PULocationID`
+- `DOLocationID`
+- `fare_amount`
+- `total_amount`
+- `tip_amount`
+
+### How They Are Used
+
+- Pickup/dropoff timestamps → duration & sanity checks
+- Amount fields → non-negative validation rules
+- Location IDs → referential integrity to master zone dimension
 
 ---
 
-## Key Concepts Demonstrated (Mapping to Dataset)
-
-From TLC schema:
-- Trip timestamps: `tpep_pickup_datetime`, `tpep_dropoff_datetime`
-- Location keys: `PULocationID`, `DOLocationID`
-- Financial fields: `fare_amount`, `total_amount`, `tip_amount`, etc.
-
-These drive:
-- **Duration / sanity checks** (pickup <= dropoff)
-- **Non-negative amounts checks**
-- **Referential integrity** to master zones dimension
-
----
-## Architecture
-S3 (Raw Reference Data)
-        ↓
-AWS Glue (Spark + JDBC)
-        ↓
-PostgreSQL (Staging Tables)
-        ↓
-SQL Transforms + Quality Gates
-        ↓
-SCD Type 2 Dimension (MDM)
-        ↓
-Audit & Governance Tables
-
-
-## SQL Linked (Transformations + Quality + Tests)
+## SQL Structure (Transformations, Quality, SCD2)
 
 ### Transformations
-- Stage trips: [`sql/transformations/01_stg_trips.sql`](Sql_with_scd2/sql/10_transforms/)
-- Fact trips: [`sql/transformations/02_fact_trips.sql`](../sql/transformations/02_fact_trips.sql)
-- Zone dimension SCD2: [`sql/transformations/03_dim_zone_scd2.sql`](../sql/transformations/03_dim_zone_scd2.sql)
+- Stage zones: [`Sql_with_scd2/sql/10_transforms/100_zone_dim.sql`](Sql_with_scd2/sql/10_transforms/100_zone_dim.sql)
 
-### Data Quality Queries
-- Required fields checks: [`sql/quality/dq_required_fields.sql`](../sql/quality/dq_required_fields.sql)
-- Referential integrity (PU/DO must exist in master zones): [`sql/quality/dq_referential_integrity.sql`](../sql/quality/dq_referential_integrity.sql)
-- Amount sanity checks: [`sql/quality/dq_amount_sanity.sql`](../sql/quality/dq_amount_sanity.sql)
+### Data Quality
+- Required fields: [`Sql_with_scd2/sql/20_quality/200_dq_zone_master.sql`](Sql_with_scd2/sql/20_quality/200_dq_zone_master.sql)
+- Assertion gate:  
+  `Sql_with_scd2/sql/20_quality/299_dq_assertions.sql`
 
-### SQL Tests
-- Row count checks: [`sql/tests/test_row_counts.sql`](../sql/tests/test_row_counts.sql)
-- DQ threshold checks (pass rate): [`sql/tests/test_dq_thresholds.sql`](../sql/tests/test_dq_thresholds.sql)
+### SCD Type 2 Logic
+- Apply SCD2 changes: [`Sql_with_scd2/sql/30_procedures/300_apply_zone_scd2.sql`](Sql_with_scd2/sql/30_procedures/300_apply_zone_scd2.sql)
+- Approve version: [`Sql_with_scd2/sql/30_procedures/310_approve_version.sql`](Sql_with_scd2/sql/30_procedures/310_approve_version.sql)
+- Rollback version: [`Sql_with_scd2/sql/30_procedures/320_rollback_version.sql`](Sql_with_scd2/sql/30_procedures/320_rollback_version.sql)
+- Audit history: [`Sql_with_scd2/sql/30_procedures/330_audit_version_history.sql`](Sql_with_scd2/sql/30_procedures/330_audit_version_history.sql)
+---
+
+## Governance & Audit Tables
+
+### Key Tables
+
+- `governance.pipeline_run_audit`
+- `governance.zone_change_audit`
+- `governance.dq_results`
+- `governance.mdm_version_control`
+
+These tables provide:
+- Full lineage
+- Run-level traceability
+- Data quality transparency
+- Stewardship approval tracking
+![governance table](./pics/day12_governance_table.png)
+
+
+
+**SQL script headers**
+/* ------------------------------------------------------------
+Author: Sumanth
+Owner: Data Engineering
+Purpose: Candidate dataset for SCD2 apply (with stable hashdiff)
+Dependencies: staging.stg_zone_master_incoming, pgcrypto extension
+------------------------------------------------------------ */
+
+
+**Data quality SQL results**
+   - Pass/fail counts for validation rules  
+![DQ SQL Results](pics/DQ%20SQL%20Results.png)
+
 
 ---
 
-## Screenshots Checklist (What to capture)
+### Day 14–15 — SCD Type 2 + Versioning (Must-have)
 
-
-
-### Day 12–13 — Advanced SQL + Governance (Must-have)
-6. **SQL script header showing governance metadata**
-   - author/owner/purpose/dependencies/quality  
-   - Save as: `docs/images/day12_sql_headers.png`
-
-7. **DQ query results**
-   - result table with counts and pass/fail  
-   - Save as: `docs/images/day12_dq_sql_results.png`
-
-8. **Glue/Athena/Redshift run proof**
-   - job run page OR query execution history  
-   - Save as: `docs/images/day13_glue_sql_job_run.png`
-
----
-
-### Day 14–15 — SCD2 + Versioning (Must-have)
-9. **Dimension table schema (SCD2 columns visible)**
+9. **SCD2 dimension table schema**
    - `effective_from`, `effective_to`, `is_current`, surrogate key  
-   - Save as: `docs/images/day14_scd2_table_schema.png`
+    ![SCD2 Schema](pics/day14_scd2_table_schema.png)
 
 10. **SCD2 history example**
-   - same natural key with 2+ versions (old closed, new current)  
-   - Save as: `docs/images/day14_scd2_history_example.png`
+    - Same `location_id` with multiple versions  
+    ![SCD2 History](pics/day14_scd2_history_example.png)
 
-11. **Point-in-time query output**
-   - “as-of join” returns correct historical dimension row  
-   - Save as: `docs/images/day15_point_in_time_query.png`
 
-12. **Rollback / time travel evidence**
-   - Delta history or restored version output  
-   - Save as: `docs/images/day15_rollback_demo.png`
+12. **Rollback / version history**
+    - Evidence of reverting to a prior version  
+    - ![Rollback](pics/roolback.png)
 
 ---
 
-## Embed Screenshots in this README
+## Key Learnings
 
-### Orchestration (Day 11)
-![Step Functions Graph](./images/day11_stepfunctions_graph.png)
-![EventBridge Rule](./images/day11_eventbridge_rule.png)
-![CloudWatch Logs](./images/day11_cloudwatch_logs.png)
-![CloudWatch Alarm](./images/day11_cloudwatch_alarm.png)
-![Audit Trail Items](./images/day11_audit_table_items.png)
-
-### SQL Governance + Tests (Day 12–13)
-![SQL Headers](./images/day12_sql_headers.png)
-![DQ SQL Results](./images/day12_dq_sql_results.png)
-![Glue SQL Run](./images/day13_glue_sql_job_run.png)
-
-### SCD2 + Versioning (Day 14–15)
-![SCD2 Schema](./images/day14_scd2_table_schema.png)
-![SCD2 History](./images/day14_scd2_history_example.png)
-![Point-in-time Query](./images/day15_point_in_time_query.png)
-![Rollback Demo](./images/day15_rollback_demo.png)
+- SQL can be treated as **governance-as-code**
+- SCD Type 2 is essential for historical accuracy
+- Data quality gates must precede dimension updates
+- Audit tables are first-class citizens in enterprise pipelines
 
 ---
 
-## Week 3 Deliverables (Checklist)
-
-- [ ] Step Functions pipeline orchestrates Glue jobs end-to-end
-- [ ] Quality gate blocks pipeline if DQ below threshold
-- [ ] Audit trail captures run_id + inputs + outputs + DQ results
-- [ ] SQL scripts include governance headers and are version-controlled
-- [ ] SQL tests exist and can be executed on demand
-- [ ] SCD Type 2 dimension implemented with point-in-time queries
-- [ ] Rollback strategy documented (Delta history / version rollback)
-
----
-
-## Notes / Next Improvements
-- Add SNS notifications for steward review queue / failed DQ thresholds
-- Add data freshness SLA checks for master zone updates
-- Publish “certified datasets” to Glue Catalog with owner + classification tags
