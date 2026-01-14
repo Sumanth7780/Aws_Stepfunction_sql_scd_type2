@@ -1,0 +1,41 @@
+{
+  "paths": {
+    "raw_trips": "s3://nyc-datalake-week2-sumanth/raw_data/yellow_tripdata/",
+    "raw_zones": "s3://nyc-datalake-week2-sumanth/raw_data/reference/",
+    "zones_csv": "s3://nyc-datalake-week2-sumanth/raw_data/reference/taxi_zone_lookup/taxi_zone_lookup.csv",
+
+    "validated_delta": "s3://nyc-datalake-week2-sumanth/validated_data/yellow_tripdata_delta/",
+    "curated_delta": "s3://nyc-datalake-week2-sumanth/curated_data/yellow_tripdata/",
+
+    "quarantine": "s3://nyc-datalake-week2-sumanth/governance/quarantine/",
+    "dq_reports": "s3://nyc-datalake-week2-sumanth/governance/dq_reports/",
+
+    "quality_scorecard_csv": "s3://nyc-datalake-week2-sumanth/governance/scorecards/quality_scorecard/",
+    "quality_by_domain_csv": "s3://nyc-datalake-week2-sumanth/governance/dashboard/quality_metrics_by_domain/",
+
+    "master_zones": "s3://nyc-datalake-week2-sumanth/master_data/taxi_zones_delta/",
+    "steward_queue": "s3://nyc-datalake-week2-sumanth/governance/steward_queue/",
+    "mdm_rejects": "s3://nyc-datalake-week2-sumanth/governance/mdm/rejects/",
+    "mdm_audit": "s3://nyc-datalake-week2-sumanth/audit/day9_mdm/",
+
+    "master_approval_queue_csv": "s3://nyc-datalake-week2-sumanth/governance/dashboard/master_approval_queue/",
+    "mdm_scorecard_csv": "s3://nyc-datalake-week2-sumanth/governance/scorecards/mdm_scorecard/",
+
+    "orphans_delta": "s3://nyc-datalake-week2-sumanth/governance/orphans_delta/",
+    "lifecycle_snapshots_delta": "s3://nyc-datalake-week2-sumanth/master_data/lifecycle_snapshots_delta/",
+    "delta_history_delta": "s3://nyc-datalake-week2-sumanth/audit/delta_history_delta/",
+    "run_summary_delta": "s3://nyc-datalake-week2-sumanth/audit/day10_run_summary_delta/",
+
+    "orphans_csv": "s3://nyc-datalake-week2-sumanth/governance/dashboard/orphan_transactions/",
+    "steward_activity_log_csv": "s3://nyc-datalake-week2-sumanth/governance/dashboard/steward_activity_log/"
+  },
+  "thresholds": {
+    "dq_min_pass_rate": 0.98,
+    "high_conf": 0.95,
+    "med_conf": 0.8,
+    "max_age_days": 7
+  },
+  "arns": {
+    "sns_topic": "arn:aws:sns:us-east-1:440376044042:nyc-pipeline-steward-alerts"
+  }
+}

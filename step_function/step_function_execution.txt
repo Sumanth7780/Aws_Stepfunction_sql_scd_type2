@@ -1,0 +1,86 @@
+Yep — let’s **rewrite the Step Function** so it runs your **new Glue jobs** (the ones you just created), using your existing execution input structure.
+
+## 1) ✅ Corrected `step_function.json` (JobName fixes + small cleanup)
+
+Your uploaded `step_function.json` is almost perfect — the only must-fix is:
+
+* **Day6 JobName** currently: `day6_datalake_delta_raw_to_validated_glue` ✅ (matches your created job)
+* **Day7/8/9/10** also match ✅
+* One logical fix: in Day9 you pass `--RAW_ZONES_PATH` from `zones_csv` (single CSV file). That’s okay *if your script expects a CSV file path*. If your script expects a folder, use `raw_zones` instead. I’ll keep your current mapping because that’s what your execution file provides.
+
+Here is the final Step Function definition (use this as your `step_function.json`):
+
+
+
+## 2) ✅ Your execution input file is already good
+
+Your `step_function_execution.json` already matches what the state machine expects: 
+
+---
+
+# 3) CMD commands to CREATE/UPDATE the Step Function and RUN it
+
+## A) Variables (CMD)
+
+```cmd
+set REGION=us-east-1
+set ACCOUNT_ID=
+set SM_NAME=step_function_week3
+set SM_ARN=arn:aws:states:%REGION%:%ACCOUNT_ID%:stateMachine:%SM_NAME%
+set SF_ROLE_ARN=arn:aws:iam::%ACCOUNT_ID%:role/StepFunctionsRole-NYCTaxiPipeline
+```
+
+---
+
+## B) If you want to **create** the Step Function (first time)
+
+```cmd
+aws stepfunctions create-state-machine --region %REGION% --name %SM_NAME% --definition file://step_function.json --role-arn %SF_ROLE_ARN%
+```
+
+If it already exists, you’ll get “StateMachineAlreadyExists” — then use update below.
+
+---
+
+## C) If it already exists → **update** definition
+
+```cmd
+aws stepfunctions update-state-machine --region %REGION% --state-machine-arn %SM_ARN% --definition file://step_function.json
+```
+
+---
+
+## D) Start execution (run pipeline)
+
+```cmd
+aws stepfunctions start-execution --region %REGION% --state-machine-arn %SM_ARN% --name run-%DATE%-%TIME% --input file://step_function_execution.json
+```
+
+---
+
+## E) Monitor (quick)
+
+```cmd
+aws stepfunctions list-executions --region %REGION% --state-machine-arn %SM_ARN% --max-results 5
+```
+
+To drill into one execution:
+
+```cmd
+aws stepfunctions describe-execution --region %REGION% --execution-arn PASTE_EXECUTION_ARN_HERE
+```
+
+---
+
+# One last “gotcha” (so it doesn’t fail)
+
+Your Step Functions IAM role must allow:
+
+* `glue:StartJobRun`
+* `glue:GetJobRun`, `glue:GetJobRuns`
+* `lambda:InvokeFunction`
+* `sns:Publish`
+
+If execution fails with AccessDenied, tell me the exact error line and I’ll give the exact IAM policy JSON to attach.
+
+If you want, paste your **current Step Functions role policy** screenshot or JSON and I’ll validate it.

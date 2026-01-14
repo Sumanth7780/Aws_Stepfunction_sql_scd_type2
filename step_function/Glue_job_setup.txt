@@ -1,0 +1,125 @@
+Got it. Below is a **complete CMD-only** (Windows Command Prompt) setup to **create NEW Glue jobs** that point to your scripts in:
+
+`s3://nyc-datalake-week2-sumanth/scripts/week3/`
+
+It includes:
+
+* Glue 4.0 + G.1X workers
+* **Delta Lake required settings**
+* CloudWatch logs + metrics + Spark UI
+* TempDir + Spark event logs path
+* Job bookmarks disabled (safe for your lab runs)
+
+> ✅ You can copy/paste this whole block into CMD.
+
+---
+
+## 0) Set variables (CMD)
+
+```bat
+REM ===============================
+REM WEEK3 GLUE JOB CREATION (CMD)
+REM ===============================
+
+set REGION=us-east-1
+set ACCOUNT_ID=
+
+set BUCKET=nyc-datalake-week2-sumanth
+set SCRIPTS_PREFIX=scripts/week3
+set TEMP_PREFIX=glue_temp/
+set SPARK_LOGS_PREFIX=glue_spark_logs/
+
+set ROLE_ARN=arn:aws:iam::%ACCOUNT_ID%:role/AWSGlueServiceRole-NYCTaxi
+```
+
+---
+
+## 1) Delta + logging default arguments (reused in all jobs)
+
+**Important:** Glue 4 with Delta needs `--datalake-formats=delta` and Spark config enabling Delta extensions.
+
+```bat
+set COMMON_ARGS="{\"--job-language\":\"python\",\"--enable-continuous-cloudwatch-log\":\"true\",\"--enable-metrics\":\"true\",\"--enable-spark-ui\":\"true\",\"--spark-event-logs-path\":\"s3://%BUCKET%/%SPARK_LOGS_PREFIX%\",\"--TempDir\":\"s3://%BUCKET%/%TEMP_PREFIX%\",\"--job-bookmark-option\":\"job-bookmark-disable\",\"--datalake-formats\":\"delta\",\"--conf\":\"spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog\"}"
+```
+
+---
+
+## 2) Create Glue Job: Day 6 (Raw → Validated Delta)
+
+```bat
+aws glue create-job --region %REGION% --name day6_datalake_delta_raw_to_validated_glue --role %ROLE_ARN% --glue-version 4.0 --worker-type G.1X --number-of-workers 2 --command "Name=glueetl,ScriptLocation=s3://%BUCKET%/%SCRIPTS_PREFIX%/day6_datalake_delta_raw_to_validated_glue.py,PythonVersion=3" --default-arguments %COMMON_ARGS%
+```
+
+---
+
+## 3) Create Glue Job: Day 7 (Enrich + Catalog prep)
+
+```bat
+aws glue create-job --region %REGION% --name day7_spark_enrich_and_catalog_prep --role %ROLE_ARN% --glue-version 4.0 --worker-type G.1X --number-of-workers 2 --command "Name=glueetl,ScriptLocation=s3://%BUCKET%/%SCRIPTS_PREFIX%/day7_spark_enrich_and_catalog_prep.py,PythonVersion=3" --default-arguments %COMMON_ARGS%
+```
+
+---
+
+## 4) Create Glue Job: Day 8 (Quality gates + DQ reports + scorecards)
+
+```bat
+aws glue create-job --region %REGION% --name day8_glue_quality_gates_validated_to_curated --role %ROLE_ARN% --glue-version 4.0 --worker-type G.1X --number-of-workers 2 --command "Name=glueetl,ScriptLocation=s3://%BUCKET%/%SCRIPTS_PREFIX%/day8_glue_quality_gates_validated_to_curated.py,PythonVersion=3" --default-arguments %COMMON_ARGS%
+```
+
+---
+
+## 5) Create Glue Job: Day 9 (MDM matching + dedup + steward queue)
+
+```bat
+aws glue create-job --region %REGION% --name day9_mdm_matching_dedup_engine --role %ROLE_ARN% --glue-version 4.0 --worker-type G.1X --number-of-workers 2 --command "Name=glueetl,ScriptLocation=s3://%BUCKET%/%SCRIPTS_PREFIX%/day9_mdm_matching_dedup_engine.py,PythonVersion=3" --default-arguments %COMMON_ARGS%
+```
+
+---
+
+## 6) Create Glue Job: Day 10 (Lifecycle + audit + orphans)
+
+```bat
+aws glue create-job --region %REGION% --name day10_mdm_lifecycle_audit_orphans --role %ROLE_ARN% --glue-version 4.0 --worker-type G.1X --number-of-workers 2 --command "Name=glueetl,ScriptLocation=s3://%BUCKET%/%SCRIPTS_PREFIX%/day10_mdm_lifecycle_audit_orphans.py,PythonVersion=3" --default-arguments %COMMON_ARGS%
+```
+
+---
+
+## 7) Verify jobs created
+
+```bat
+aws glue get-jobs --region %REGION% | findstr "day6_ day7_ day8_ day9_ day10_"
+```
+
+---
+
+## 8) (Optional but recommended) Add extra python modules if your scripts need them
+
+If your jobs require additional libs (e.g., `pyyaml`), update a job like:
+
+```bat
+aws glue update-job --region %REGION% --job-name day8_glue_quality_gates_validated_to_curated --job-update "{\"DefaultArguments\":{\"--additional-python-modules\":\"pyyaml\",\"--job-language\":\"python\",\"--enable-continuous-cloudwatch-log\":\"true\",\"--enable-metrics\":\"true\",\"--enable-spark-ui\":\"true\",\"--spark-event-logs-path\":\"s3://%BUCKET%/%SPARK_LOGS_PREFIX%\",\"--TempDir\":\"s3://%BUCKET%/%TEMP_PREFIX%\",\"--job-bookmark-option\":\"job-bookmark-disable\",\"--datalake-formats\":\"delta\",\"--conf\":\"spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension --conf spark.sql.catalog.spark_catalog=org.apache.spark.sql.delta.catalog.DeltaCatalog\"}}"
+```
+
+(Only do this if you actually import a module that Glue doesn’t have.)
+
+---
+
+# Key Notes (so you don’t get stuck)
+
+### ✅ Delta is enabled in TWO places
+
+1. `--datalake-formats=delta`
+2. `--conf` for Delta session extension + catalog
+
+### ✅ Spark UI / logs
+
+* Spark UI enabled + logs to:
+  `s3://nyc-datalake-week2-sumanth/glue_spark_logs/`
+
+### ✅ TempDir
+
+* `s3://nyc-datalake-week2-sumanth/glue_temp/`
+
+---
+
+If you paste the **first ~20 lines** of your Day6/Day7/Day8 scripts (the `getResolvedOptions` section), I’ll also generate the **exact `aws glue start-job-run` commands** for each job with the right arguments so you can test each one before running Step Functions.

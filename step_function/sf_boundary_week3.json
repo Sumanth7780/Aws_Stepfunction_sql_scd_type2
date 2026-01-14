@@ -1,0 +1,53 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowGlueWeek3Jobs",
+      "Effect": "Allow",
+      "Action": [
+        "glue:StartJobRun",
+        "glue:GetJobRun",
+        "glue:GetJobRuns",
+        "glue:GetJob"
+      ],
+      "Resource": [
+        "arn:aws:glue:us-east-1:440376044042:job/day6_datalake_delta_raw_to_validated_glue",
+        "arn:aws:glue:us-east-1:440376044042:job/day7_spark_enrich_and_catalog_prep",
+        "arn:aws:glue:us-east-1:440376044042:job/day8_glue_quality_gates_validated_to_curated",
+        "arn:aws:glue:us-east-1:440376044042:job/day9_mdm_matching_dedup_engine",
+        "arn:aws:glue:us-east-1:440376044042:job/day10_mdm_lifecycle_audit_orphans"
+      ]
+    },
+    {
+      "Sid": "AllowLambdaInvokeWeek3",
+      "Effect": "Allow",
+      "Action": ["lambda:InvokeFunction"],
+      "Resource": [
+        "arn:aws:lambda:us-east-1:440376044042:function:dq_gate_check",
+        "arn:aws:lambda:us-east-1:440376044042:function:master_freshness_check",
+        "arn:aws:lambda:us-east-1:440376044042:function:audit_publish"
+      ]
+    },
+    {
+      "Sid": "AllowSnsPublishWeek3",
+      "Effect": "Allow",
+      "Action": ["sns:Publish"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowLogsForExecution",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogDelivery",
+        "logs:GetLogDelivery",
+        "logs:UpdateLogDelivery",
+        "logs:DeleteLogDelivery",
+        "logs:ListLogDeliveries",
+        "logs:PutResourcePolicy",
+        "logs:DescribeResourcePolicies",
+        "logs:DescribeLogGroups"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

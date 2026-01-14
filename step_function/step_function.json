@@ -1,0 +1,307 @@
+{
+  "Comment": "NYC Taxi governed lake pipeline - Glue orchestration + DQ gate + Freshness check + SNS + Audit publish",
+  "StartAt": "Day6_RawToValidated",
+  "States": {
+    "Day6_RawToValidated": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "day6_datalake_delta_raw_to_validated_glue",
+        "Arguments": {
+          "--RAW_TRIPS_PATH.$": "$.paths.raw_trips",
+          "--RAW_ZONES_PATH.$": "$.paths.raw_zones",
+          "--DELTA_OUT_PATH.$": "$.paths.validated_delta"
+        }
+      },
+      "ResultPath": "$.outputs.day6",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ConcurrentRunsExceededException",
+            "Glue.ThrottlingException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Day7_Enrich_CatalogPrep"
+    },
+
+    "Day7_Enrich_CatalogPrep": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "day7_spark_enrich_and_catalog_prep",
+        "Arguments": {
+          "--VALIDATED_DELTA_PATH.$": "$.paths.validated_delta",
+          "--RAW_ZONES_CSV_PATH.$": "$.paths.zones_csv",
+          "--CURATED_DELTA_PATH.$": "$.paths.curated_delta"
+        }
+      },
+      "ResultPath": "$.outputs.day7",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ConcurrentRunsExceededException",
+            "Glue.ThrottlingException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Day8_DQ_Gates_And_Scorecards"
+    },
+
+    "Day8_DQ_Gates_And_Scorecards": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "day8_glue_quality_gates_validated_to_curated",
+        "Arguments": {
+          "--INPUT_DELTA_PATH.$": "$.paths.validated_delta",
+          "--CURATED_DELTA_PATH.$": "$.paths.curated_delta",
+          "--QUARANTINE_PATH.$": "$.paths.quarantine",
+          "--DQ_REPORT_PATH.$": "$.paths.dq_reports",
+          "--QUALITY_SCORECARD_CSV_OUT.$": "$.paths.quality_scorecard_csv",
+          "--QUALITY_BY_DOMAIN_CSV_OUT.$": "$.paths.quality_by_domain_csv"
+        }
+      },
+      "ResultPath": "$.outputs.day8",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ConcurrentRunsExceededException",
+            "Glue.ThrottlingException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Lambda_DQGateCheck"
+    },
+
+    "Lambda_DQGateCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "dq_gate_check",
+        "Payload": {
+          "dq_reports_prefix.$": "$.paths.dq_reports",
+          "min_pass_rate.$": "$.thresholds.dq_min_pass_rate"
+        }
+      },
+      "ResultPath": "$.outputs.dq_gate",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Choice_DQPass"
+    },
+
+    "Choice_DQPass": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.outputs.dq_gate.Payload.dq_ok",
+          "BooleanEquals": true,
+          "Next": "Day9_MDM_Dedup_And_Queue"
+        }
+      ],
+      "Default": "Notify_DQFail_SNS"
+    },
+
+    "Notify_DQFail_SNS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn.$": "$.arns.sns_topic",
+        "Subject": "DQ Gate FAILED - NYC Taxi pipeline",
+        "Message.$": "$.outputs.dq_gate.Payload"
+      },
+      "ResultPath": "$.outputs.sns_dq_fail",
+      "Next": "Audit_Fail"
+    },
+
+    "Day9_MDM_Dedup_And_Queue": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "day9_mdm_matching_dedup_engine",
+        "Arguments": {
+          "--RAW_ZONES_PATH.$": "$.paths.zones_csv",
+          "--MASTER_OUT_PATH.$": "$.paths.master_zones",
+          "--STEWARD_QUEUE_PATH.$": "$.paths.steward_queue",
+          "--REJECTS_PATH.$": "$.paths.mdm_rejects",
+          "--AUDIT_PATH.$": "$.paths.mdm_audit",
+
+          "--HIGH_CONF.$": "States.Format('{}', $.thresholds.high_conf)",
+          "--MED_CONF.$": "States.Format('{}', $.thresholds.med_conf)",
+
+          "--MASTER_APPROVAL_QUEUE_CSV_OUT.$": "$.paths.master_approval_queue_csv",
+          "--MDM_SCORECARD_CSV_OUT.$": "$.paths.mdm_scorecard_csv"
+        }
+      },
+      "ResultPath": "$.outputs.day9",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ConcurrentRunsExceededException",
+            "Glue.ThrottlingException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Lambda_MasterFreshness"
+    },
+
+    "Lambda_MasterFreshness": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "master_freshness_check",
+        "Payload": {
+          "master_prefix.$": "$.paths.master_zones",
+          "max_age_days.$": "$.thresholds.max_age_days",
+          "sns_topic_arn.$": "$.arns.sns_topic"
+        }
+      },
+      "ResultPath": "$.outputs.freshness",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Day10_Orphans_Audit_Dashboards"
+    },
+
+    "Day10_Orphans_Audit_Dashboards": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "day10_mdm_lifecycle_audit_orphans",
+        "Arguments": {
+          "--MASTER_ZONES_DELTA_PATH.$": "$.paths.master_zones",
+          "--CURATED_TRIPS_DELTA_PATH.$": "$.paths.curated_delta",
+          "--ORPHANS_OUT_PATH.$": "$.paths.orphans_delta",
+          "--LIFECYCLE_SNAPSHOT_PATH.$": "$.paths.lifecycle_snapshots_delta",
+          "--AUDIT_HISTORY_OUT_PATH.$": "$.paths.delta_history_delta",
+          "--RUN_SUMMARY_PATH.$": "$.paths.run_summary_delta",
+          "--ORPHANS_CSV_OUT.$": "$.paths.orphans_csv",
+          "--STEWARD_ACTIVITY_LOG_CSV_OUT.$": "$.paths.steward_activity_log_csv"
+        }
+      },
+      "ResultPath": "$.outputs.day10",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Glue.ConcurrentRunsExceededException",
+            "Glue.ThrottlingException",
+            "States.Timeout"
+          ],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 3,
+          "BackoffRate": 2.0
+        },
+        {
+          "ErrorEquals": ["States.ALL"],
+          "IntervalSeconds": 20,
+          "MaxAttempts": 2,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [{ "ErrorEquals": ["States.ALL"], "Next": "Audit_Fail" }],
+      "Next": "Audit_Success"
+    },
+
+    "Audit_Success": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "audit_publish",
+        "Payload": {
+          "status": "SUCCESS",
+          "run_id.$": "$$.Execution.Id",
+          "payload.$": "$"
+        }
+      },
+      "ResultPath": "$.outputs.audit_success",
+      "End": true
+    },
+
+    "Audit_Fail": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "audit_publish",
+        "Payload": {
+          "status": "FAILED",
+          "run_id.$": "$$.Execution.Id",
+          "payload.$": "$"
+        }
+      },
+      "ResultPath": "$.outputs.audit_fail",
+      "Next": "FailState"
+    },
+
+    "FailState": {
+      "Type": "Fail",
+      "Cause": "Pipeline failed - check CloudWatch logs and DynamoDB audit table"
+    }
+  }
+}
